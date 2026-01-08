@@ -1,0 +1,133 @@
+--========================================================
+-- APOCALYPSE MODE — FINAL HARDENED
+-- ALWAYS BRIGHT | NO FX | NO TEXTURE | MAX STABILITY
+--========================================================
+
+local Lighting = game:GetService("Lighting")
+local Terrain = workspace:FindFirstChildOfClass("Terrain")
+
+--========================================================
+-- 1. LIGHTING LOCK (DEBOUNCED)
+--========================================================
+local lightingState = {
+	GlobalShadows = false,
+	ShadowSoftness = 0,
+	Brightness = 3,
+	ExposureCompensation = 1,
+	ClockTime = 12,
+	FogStart = 0,
+	FogEnd = 1e9,
+	FogColor = Color3.new(1,1,1),
+	Ambient = Color3.new(1,1,1),
+	OutdoorAmbient = Color3.new(1,1,1),
+	EnvironmentDiffuseScale = 0,
+	EnvironmentSpecularScale = 0
+}
+
+local lightingBusy = false
+
+local function applyLighting()
+	if lightingBusy then return end
+	lightingBusy = true
+
+	for prop, val in pairs(lightingState) do
+		if Lighting[prop] ~= val then
+			Lighting[prop] = val
+		end
+	end
+
+	for _, v in ipairs(Lighting:GetChildren()) do
+		if v:IsA("PostEffect") then
+			v.Enabled = false
+		end
+	end
+
+	task.defer(function()
+		lightingBusy = false
+	end)
+end
+
+applyLighting()
+
+for prop in pairs(lightingState) do
+	Lighting:GetPropertyChangedSignal(prop):Connect(applyLighting)
+end
+
+Lighting.ChildAdded:Connect(function(child)
+	if child:IsA("PostEffect") then
+		child.Enabled = false
+	end
+end)
+
+--========================================================
+-- 2. OBJECT STRIPPER (WEAK CACHE)
+--========================================================
+local stripped = setmetatable({}, { __mode = "k" })
+
+local function stripObject(obj)
+	if stripped[obj] then return end
+	stripped[obj] = true
+
+	if obj:IsA("Decal") or obj:IsA("Texture") then
+		obj.Texture = ""
+
+	elseif obj:IsA("MeshPart") then
+		obj.TextureID = ""
+
+	elseif obj:IsA("SurfaceAppearance") then
+		obj:Destroy()
+		return
+
+	elseif obj:IsA("ParticleEmitter")
+	or obj:IsA("Beam")
+	or obj:IsA("Trail")
+	or obj:IsA("Fire")
+	or obj:IsA("Smoke")
+	or obj:IsA("Sparkles")
+	or obj:IsA("Highlight")
+	or obj:IsA("PointLight")
+	or obj:IsA("SpotLight")
+	or obj:IsA("SurfaceLight") then
+		obj.Enabled = false
+
+	elseif obj:IsA("BasePart") then
+		obj.Material = Enum.Material.SmoothPlastic
+		obj.Reflectance = 0
+		obj.CastShadow = false
+	end
+end
+
+--========================================================
+-- 3. INITIAL STRIP
+--========================================================
+for _, obj in ipairs(workspace:GetDescendants()) do
+	stripObject(obj)
+end
+
+--========================================================
+-- 4. ANTI FX SPAWN
+--========================================================
+workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("Model") or obj:IsA("Folder") then return end
+	task.defer(stripObject, obj)
+end)
+
+--========================================================
+-- 5. TERRAIN
+--========================================================
+if Terrain then
+	Terrain.WaterTransparency = 1
+	Terrain.WaterReflectance = 0
+	Terrain.WaterWaveSize = 0
+	Terrain.WaterWaveSpeed = 0
+end
+
+--========================================================
+-- 6. QUALITY FORCE
+--========================================================
+pcall(function()
+	settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+	settings().Rendering.AutoQualityLevel = Enum.QualityLevel.Level01
+end)
+
+print("[APOCALYPSE MODE] HARDENED | STABLE | LOW GPU")
