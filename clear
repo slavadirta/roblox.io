@@ -1,0 +1,11 @@
+for _, v in next, listfiles("") do
+    local name = v:lower()
+    if name:find("delta") or name:find("new_logo.png") then
+        continue
+    end
+    if isfolder(v) then
+        pcall(delfolder, v)
+    else
+        pcall(delfile, v)
+    end
+end
