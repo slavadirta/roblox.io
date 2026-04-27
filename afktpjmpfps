@@ -1,0 +1,329 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+--// STORAGE
+local folder = "/storage/emulated/0/Delta/Workspace/"
+local file = folder .. "coords.json"
+if not isfolder(folder) then makefolder(folder) end
+local savedData = {}
+
+local function loadData()
+    if isfile(file) then
+        local ok, res = pcall(function() return HttpService:JSONDecode(readfile(file)) end)
+        if ok and type(res) == "table" then savedData = res end
+    end
+end
+local function saveData() writefile(file, HttpService:JSONEncode(savedData)) end
+loadData()
+
+--// OPTIMIZER FUNCTION (Anti-Lag)
+local function setOptimization(enable)
+    if enable then
+        -- Mengurangi beban render tapi tetap menjaga tampilan dasar
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("PostEffect") then v.Enabled = false end
+        end
+    else
+        -- Mengembalikan ke settingan User (Bagus untuk Foto)
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+        Lighting.GlobalShadows = true
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("PostEffect") then v.Enabled = true end
+        end
+    end
+end
+
+--// GLOBAL STATE
+local isRenaming = false
+local flying = false
+local flySpeed = 50
+local ctrl = {q = 0, e = 0}
+local bv, bg
+
+--// PLAYER FINDER & TP
+local function getPlayer(str)
+    str = str:lower()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Name:lower():find(str) or p.DisplayName:lower():find(str) then return p end
+    end
+end
+
+local function tp(pos)
+    local c = LP.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        c.HumanoidRootPart.CFrame = (typeof(pos) == "CFrame" and pos or CFrame.new(pos))
+    end
+end
+
+--// FLY SYSTEM (MOBILE)
+local flyControls = Instance.new("Frame")
+flyControls.Size = UDim2.new(0, 100, 0, 40)
+flyControls.Position = UDim2.new(0.5, -50, 0.8, 0)
+flyControls.BackgroundTransparency = 1
+flyControls.Visible = false
+
+local function createFlyBtn(txt, pos, press, release)
+    local b = Instance.new("TextButton", flyControls)
+    b.Size = UDim2.new(0, 45, 1, 0)
+    b.Position = pos
+    b.Text = txt
+    b.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    b.TextColor3 = Color3.new(1,1,1)
+    b.MouseButton1Down:Connect(press)
+    b.MouseButton1Up:Connect(release)
+end
+
+createFlyBtn("UP", UDim2.new(0,0,0,0), function() ctrl.q = 1 end, function() ctrl.q = 0 end)
+createFlyBtn("DN", UDim2.new(0,55,0,0), function() ctrl.e = -1 end, function() ctrl.e = 0 end)
+
+local function toggleFly()
+    flying = not flying
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    
+    flyControls.Visible = flying
+    if flying and hrp and hum then
+        hum.PlatformStand = true
+        bg = Instance.new("BodyGyro", hrp)
+        bg.P = 9e4
+        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        bv = Instance.new("BodyVelocity", hrp)
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+        task.spawn(function()
+            while flying and task.wait() do
+                local cam = workspace.CurrentCamera
+                bv.Velocity = (hum.MoveDirection * flySpeed) + (cam.CFrame.UpVector * (ctrl.q + ctrl.e) * flySpeed)
+                bg.CFrame = cam.CFrame
+            end
+        end)
+    else
+        if bv then bv:Destroy() end
+        if bg then bg:Destroy() end
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+--// ESP SYSTEM
+local currentESPPlayer, currentHighlight
+local function removeESP() if currentHighlight then currentHighlight:Destroy() end currentESPPlayer = nil end
+local function applyESP(player)
+    if currentESPPlayer == player then removeESP() return false end
+    removeESP()
+    local char = player.Character
+    if char then
+        local hl = Instance.new("Highlight", game.CoreGui)
+        hl.FillColor = Color3.fromRGB(255, 0, 0)
+        hl.Adornee = char
+        currentHighlight = hl
+        currentESPPlayer = player
+        return true
+    end
+    return false
+end
+
+--// DRAG SYSTEM
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragStart, startPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = UIS:GetMouseLocation()
+            startPos = frame.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging then
+            local delta = UIS:GetMouseLocation() - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+--// GUI SETUP
+local gui = Instance.new("ScreenGui", game.CoreGui)
+flyControls.Parent = gui
+
+local floatBtn = Instance.new("TextButton", gui)
+floatBtn.Size = UDim2.new(0,40,0,40)
+floatBtn.Position = UDim2.new(0,20,0.5,-20)
+floatBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+floatBtn.Text = "S"
+floatBtn.TextColor3 = Color3.new(1,1,1)
+floatBtn.BorderSizePixel = 0
+makeDraggable(floatBtn)
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 200, 0, 240)
+main.Position = UDim2.new(0.5, -100, 0.5, -120)
+main.BackgroundColor3 = Color3.fromRGB(20,20,20)
+main.Visible = false
+main.BorderSizePixel = 0
+
+floatBtn.MouseButton1Click:Connect(function() 
+    main.Visible = not main.Visible
+    -- OTOMATIS: Optimize saat menu dibuka, Max Quality saat menu ditutup (untuk foto)
+    setOptimization(main.Visible)
+end)
+
+local top = Instance.new("Frame", main)
+top.Size = UDim2.new(1,0,0,25)
+top.BackgroundColor3 = Color3.fromRGB(35,35,35)
+top.BorderSizePixel = 0
+makeDraggable(main, top)
+
+local content = Instance.new("Frame", main)
+content.Size = UDim2.new(1,0,1,-25)
+content.Position = UDim2.new(0,0,0,25)
+content.BackgroundTransparency = 1
+
+local box = Instance.new("TextBox", content)
+box.Size = UDim2.new(1,-10,0,28)
+box.Position = UDim2.new(0,5,0,5)
+box.PlaceholderText = "Target Name + Enter"
+box.ClearTextOnFocus = true
+box.BackgroundColor3 = Color3.fromRGB(30,30,30)
+box.TextColor3 = Color3.new(1,1,1)
+
+box.FocusLost:Connect(function(enter)
+    if enter and box.Text ~= "" and not isRenaming then
+        local t = getPlayer(box.Text)
+        if t and t.Character then tp(t.Character.HumanoidRootPart.CFrame) end
+    end
+end)
+
+-- BUTTONS
+local function createBtn(txt, pos, sizeX)
+    local b = Instance.new("TextButton", content)
+    b.Size = UDim2.new(sizeX, -5, 0, 28)
+    b.Position = pos
+    b.Text = txt
+    b.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BorderSizePixel = 0
+    return b
+end
+
+local headsit = createBtn("Sit", UDim2.new(0, 5, 0, 38), 0.33)
+local flyBtn = createBtn("Fly", UDim2.new(0.33, 5, 0, 38), 0.33)
+local espBtn = createBtn("ESP", UDim2.new(0.66, 5, 0, 38), 0.33)
+local saveBtn = createBtn("Save Current Location", UDim2.new(0, 5, 0, 71), 1)
+
+local listFrame = Instance.new("ScrollingFrame", content)
+listFrame.Size = UDim2.new(1,-10,0,100)
+listFrame.Position = UDim2.new(0,5,0,104)
+listFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+listFrame.BorderSizePixel = 0
+listFrame.ScrollBarThickness = 2
+listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local layout = Instance.new("UIListLayout", listFrame)
+layout.Padding = UDim.new(0,2)
+
+-- EVENTS
+flyBtn.MouseButton1Click:Connect(function()
+    toggleFly()
+    flyBtn.BackgroundColor3 = flying and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(40, 40, 40)
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+    local t = getPlayer(box.Text)
+    if t then
+        local active = applyESP(t)
+        espBtn.BackgroundColor3 = active and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(40, 40, 40)
+    end
+end)
+
+local weld
+headsit.MouseButton1Click:Connect(function()
+    if weld then weld:Destroy() weld = nil end
+    local t = getPlayer(box.Text)
+    if t and t.Character and LP.Character then
+        local hrp = LP.Character.HumanoidRootPart
+        local head = t.Character:FindFirstChild("Head")
+        if hrp and head then
+            hrp.CFrame = head.CFrame * CFrame.new(0,1.5,0)
+            weld = Instance.new("WeldConstraint", hrp)
+            weld.Part0 = hrp weld.Part1 = head
+        end
+    end
+end)
+
+UIS.JumpRequest:Connect(function() if weld then weld:Destroy() weld = nil end end)
+
+-- LIST MANAGER
+function refresh()
+    for _,v in pairs(listFrame:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
+    for i,data in ipairs(savedData) do
+        local row = Instance.new("Frame", listFrame)
+        row.Size = UDim2.new(1,0,0,25)
+        row.BackgroundColor3 = Color3.fromRGB(30,30,30)
+        row.BorderSizePixel = 0
+        
+        local btn = Instance.new("TextButton", row)
+        btn.Size = UDim2.new(0.6,0,1,0)
+        btn.Text = " " .. data.name
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.BackgroundTransparency = 1
+        btn.MouseButton1Click:Connect(function() tp(Vector3.new(data.x,data.y,data.z)) end)
+        
+        local del = Instance.new("TextButton", row)
+        del.Size = UDim2.new(0.2,0,1,0)
+        del.Position = UDim2.new(0.6,0,0,0)
+        del.Text = "X"
+        del.BackgroundColor3 = Color3.fromRGB(100, 30, 30)
+        del.MouseButton1Click:Connect(function() table.remove(savedData,i) saveData() refresh() end)
+
+        local ren = Instance.new("TextButton", row)
+        ren.Size = UDim2.new(0.2,0,1,0)
+        ren.Position = UDim2.new(0.8,0,0,0)
+        ren.Text = "R"
+        ren.BackgroundColor3 = Color3.fromRGB(40, 40, 80)
+        ren.MouseButton1Click:Connect(function()
+            isRenaming = true
+            box.Text = ""
+            box:CaptureFocus()
+            box.PlaceholderText = "Enter New Name..."
+            local con; con = box.FocusLost:Connect(function(e)
+                if e and box.Text ~= "" then
+                    savedData[i].name = box.Text
+                    saveData() refresh()
+                end
+                isRenaming = false
+                box.PlaceholderText = "Target Name + Enter"
+                con:Disconnect()
+            end)
+        end)
+    end
+end
+
+saveBtn.MouseButton1Click:Connect(function()
+    if LP.Character then
+        local p = LP.Character.HumanoidRootPart.Position
+        table.insert(savedData,{name="Loc "..(#savedData+1), x=p.X, y=p.Y, z=p.Z})
+        saveData() refresh()
+    end
+end)
+
+-- ANTI-LAG: Turunkan render saat game idle
+LP.Idled:Connect(function()
+    setOptimization(true)
+    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
+
+refresh()
+
