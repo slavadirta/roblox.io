@@ -1,0 +1,309 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+
+--// STORAGE
+local folder = "/storage/emulated/0/Delta/Workspace/"
+local file = folder .. "coords.json"
+if not isfolder(folder) then makefolder(folder) end
+local savedData = {}
+
+local function loadData()
+    if isfile(file) then
+        local ok, res = pcall(function() return HttpService:JSONDecode(readfile(file)) end)
+        if ok and type(res) == "table" then savedData = res end
+    end
+end
+local function saveData() writefile(file, HttpService:JSONEncode(savedData)) end
+loadData()
+
+--// GLOBAL STATE
+local isRenaming = false -- Variabel kunci untuk mencegah teleport saat rename
+
+--// PLAYER FINDER
+local function getPlayer(str)
+    str = str:lower()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Name:lower():find(str) or p.DisplayName:lower():find(str) then return p end
+    end
+end
+
+--// TELEPORT
+local function tp(pos)
+    local c = LP.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        c.HumanoidRootPart.CFrame = (typeof(pos) == "CFrame" and pos or CFrame.new(pos))
+    end
+end
+
+--// FLY SYSTEM (MOBILE SUPPORTED)
+local flying = false
+local flySpeed = 50
+local ctrl = {q = 0, e = 0}
+local bv, bg
+
+local flyControls = Instance.new("Frame")
+flyControls.Size = UDim2.new(0, 100, 0, 40)
+flyControls.Position = UDim2.new(0.5, -50, 0.8, 0)
+flyControls.BackgroundTransparency = 1
+flyControls.Visible = false
+
+local function createFlyBtn(txt, pos, press, release)
+    local b = Instance.new("TextButton", flyControls)
+    b.Size = UDim2.new(0, 45, 1, 0)
+    b.Position = pos
+    b.Text = txt
+    b.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    b.TextColor3 = Color3.new(1,1,1)
+    b.MouseButton1Down:Connect(press)
+    b.MouseButton1Up:Connect(release)
+end
+
+createFlyBtn("UP", UDim2.new(0,0,0,0), function() ctrl.q = 1 end, function() ctrl.q = 0 end)
+createFlyBtn("DN", UDim2.new(0,55,0,0), function() ctrl.e = -1 end, function() ctrl.e = 0 end)
+
+local function toggleFly()
+    flying = not flying
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    
+    flyControls.Visible = flying
+    if flying and hrp and hum then
+        hum.PlatformStand = true
+        bg = Instance.new("BodyGyro", hrp)
+        bg.P = 9e4
+        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        bg.CFrame = hrp.CFrame
+        bv = Instance.new("BodyVelocity", hrp)
+        bv.Velocity = Vector3.new(0, 0, 0)
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+        task.spawn(function()
+            while flying and task.wait() do
+                local cam = workspace.CurrentCamera
+                local moveDir = hum.MoveDirection * flySpeed
+                local vertical = cam.CFrame.UpVector * (ctrl.q + ctrl.e) * flySpeed
+                bv.Velocity = moveDir + vertical
+                bg.CFrame = cam.CFrame
+            end
+        end)
+    else
+        if bv then bv:Destroy() end
+        if bg then bg:Destroy() end
+        if hum then hum.PlatformStand = false end
+        ctrl.q = 0 ctrl.e = 0
+    end
+end
+
+--// ESP SYSTEM
+local currentESPPlayer, currentHighlight
+local function removeESP() if currentHighlight then currentHighlight:Destroy() end currentESPPlayer = nil end
+local function applyESP(player)
+    if currentESPPlayer == player then removeESP() return false end
+    removeESP()
+    local char = player.Character
+    if char then
+        local hl = Instance.new("Highlight", game.CoreGui)
+        hl.FillColor = Color3.fromRGB(255, 0, 0)
+        hl.Adornee = char
+        currentHighlight = hl
+        currentESPPlayer = player
+        return true
+    end
+    return false
+end
+
+--// DRAG SYSTEM
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragStart, startPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = UIS:GetMouseLocation()
+            startPos = frame.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging then
+            local delta = UIS:GetMouseLocation() - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+--// GUI SETUP
+local gui = Instance.new("ScreenGui", game.CoreGui)
+flyControls.Parent = gui
+
+local floatBtn = Instance.new("TextButton", gui)
+floatBtn.Size = UDim2.new(0,50,0,50)
+floatBtn.Position = UDim2.new(0,20,0.5,-25)
+floatBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+floatBtn.Text = "S"
+floatBtn.TextColor3 = Color3.new(1,1,1)
+makeDraggable(floatBtn)
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 200, 0, 240)
+main.Position = UDim2.new(0.5, -100, 0.5, -120)
+main.BackgroundColor3 = Color3.fromRGB(20,20,20)
+main.Visible = false
+floatBtn.MouseButton1Click:Connect(function() main.Visible = not main.Visible end)
+
+local top = Instance.new("Frame", main)
+top.Size = UDim2.new(1,0,0,25)
+top.BackgroundColor3 = Color3.fromRGB(30,30,30)
+makeDraggable(main, top)
+
+local content = Instance.new("Frame", main)
+content.Size = UDim2.new(1,0,1,-25)
+content.Position = UDim2.new(0,0,0,25)
+content.BackgroundTransparency = 1
+
+local box = Instance.new("TextBox", content)
+box.Size = UDim2.new(1,-10,0,28)
+box.Position = UDim2.new(0,5,0,5)
+box.PlaceholderText = "Input Name + Enter"
+box.ClearTextOnFocus = true
+
+-- LOGIC TELEPORT (DIPERBAIKI: CEK MODE RENAME)
+box.FocusLost:Connect(function(enter)
+    if enter and box.Text ~= "" then
+        if isRenaming then 
+            -- Jika sedang rename, jangan teleport. 
+            -- Logika rename sudah dihandle di tombol R.
+            return 
+        end
+        
+        local t = getPlayer(box.Text)
+        if t and t.Character then 
+            tp(t.Character.HumanoidRootPart.CFrame) 
+        end
+    end
+end)
+
+local headsit = Instance.new("TextButton", content)
+headsit.Size = UDim2.new(0.33, -5, 0, 28)
+headsit.Position = UDim2.new(0, 5, 0, 38)
+headsit.Text = "Sit"
+
+local flyBtn = Instance.new("TextButton", content)
+flyBtn.Size = UDim2.new(0.33, -5, 0, 28)
+flyBtn.Position = UDim2.new(0.33, 5, 0, 38)
+flyBtn.Text = "Fly"
+
+local espBtn = Instance.new("TextButton", content)
+espBtn.Size = UDim2.new(0.33, -5, 0, 28)
+espBtn.Position = UDim2.new(0.66, 5, 0, 38)
+espBtn.Text = "ESP"
+
+local saveBtn = Instance.new("TextButton", content)
+saveBtn.Size = UDim2.new(1,-10,0,28)
+saveBtn.Position = UDim2.new(0,5,0,71)
+saveBtn.Text = "Save Coords"
+
+local listFrame = Instance.new("ScrollingFrame", content)
+listFrame.Size = UDim2.new(1,-10,0,100)
+listFrame.Position = UDim2.new(0,5,0,104)
+listFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+listFrame.ScrollBarThickness = 2
+listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local layout = Instance.new("UIListLayout", listFrame)
+layout.Padding = UDim.new(0,2)
+
+--// BUTTON EVENTS
+flyBtn.MouseButton1Click:Connect(function()
+    toggleFly()
+    flyBtn.BackgroundColor3 = flying and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(45, 45, 45)
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+    local t = getPlayer(box.Text)
+    if t then
+        local active = applyESP(t)
+        espBtn.BackgroundColor3 = active and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(45, 45, 45)
+    end
+end)
+
+local weld
+headsit.MouseButton1Click:Connect(function()
+    if weld then weld:Destroy() weld = nil end
+    local t = getPlayer(box.Text)
+    if t and t.Character and LP.Character then
+        local hrp = LP.Character.HumanoidRootPart
+        local head = t.Character:FindFirstChild("Head")
+        if hrp and head then
+            hrp.CFrame = head.CFrame * CFrame.new(0,1.5,0)
+            weld = Instance.new("WeldConstraint", hrp)
+            weld.Part0 = hrp weld.Part1 = head
+        end
+    end
+end)
+
+UIS.JumpRequest:Connect(function() if weld then weld:Destroy() weld = nil end end)
+
+--// REFRESH LIST
+function refresh()
+    for _,v in pairs(listFrame:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
+    for i,data in ipairs(savedData) do
+        local row = Instance.new("Frame", listFrame)
+        row.Size = UDim2.new(1,0,0,22)
+        row.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        
+        local btn = Instance.new("TextButton", row)
+        btn.Size = UDim2.new(0.6,0,1,0)
+        btn.Text = data.name
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.BackgroundTransparency = 1
+        btn.MouseButton1Click:Connect(function() tp(Vector3.new(data.x,data.y,data.z)) end)
+        
+        local del = Instance.new("TextButton", row)
+        del.Size = UDim2.new(0.2,0,1,0)
+        del.Position = UDim2.new(0.6,0,0,0)
+        del.Text = "X"
+        del.MouseButton1Click:Connect(function() table.remove(savedData,i) saveData() refresh() end)
+
+        local ren = Instance.new("TextButton", row)
+        ren.Size = UDim2.new(0.2,0,1,0)
+        ren.Position = UDim2.new(0.8,0,0,0)
+        ren.Text = "R"
+        ren.MouseButton1Click:Connect(function()
+            isRenaming = true -- AKTIFKAN MODE RENAME
+            box.Text = ""
+            box:CaptureFocus()
+            box.PlaceholderText = "Type New Name + Enter"
+            
+            local con; con = box.FocusLost:Connect(function(e)
+                if e and box.Text ~= "" then
+                    savedData[i].name = box.Text
+                    saveData() 
+                    refresh()
+                    box.PlaceholderText = "Input Name + Enter"
+                    isRenaming = false -- MATIKAN MODE RENAME
+                    con:Disconnect()
+                else
+                    isRenaming = false -- MATIKAN MODE RENAME JIKA BATAL
+                    con:Disconnect()
+                end
+            end)
+        end)
+    end
+end
+
+saveBtn.MouseButton1Click:Connect(function()
+    if LP.Character then
+        local p = LP.Character.HumanoidRootPart.Position
+        table.insert(savedData,{name="Loc "..(#savedData+1), x=p.X, y=p.Y, z=p.Z})
+        saveData() refresh()
+    end
+end)
+
+refresh()
+
