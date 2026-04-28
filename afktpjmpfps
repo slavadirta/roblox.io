@@ -22,23 +22,14 @@ end
 local function saveData() writefile(file, HttpService:JSONEncode(savedData)) end
 loadData()
 
---// OPTIMIZER FUNCTION (Anti-Lag)
+--// OPTIMIZER
 local function setOptimization(enable)
     if enable then
-        -- Mengurangi beban render tapi tetap menjaga tampilan dasar
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
         Lighting.GlobalShadows = false
-        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-        for _, v in pairs(game:GetDescendants()) do
-            if v:IsA("PostEffect") then v.Enabled = false end
-        end
     else
-        -- Mengembalikan ke settingan User (Bagus untuk Foto)
         settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
         Lighting.GlobalShadows = true
-        for _, v in pairs(game:GetDescendants()) do
-            if v:IsA("PostEffect") then v.Enabled = true end
-        end
     end
 end
 
@@ -48,6 +39,16 @@ local flying = false
 local flySpeed = 50
 local ctrl = {q = 0, e = 0}
 local bv, bg
+
+--// INFINITE JUMP LOGIC (No Delay & Anti-Conflict)
+UIS.JumpRequest:Connect(function()
+    if not flying then -- Hanya aktif jika TIDAK sedang terbang
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState("Jumping")
+        end
+    end
+end)
 
 --// PLAYER FINDER & TP
 local function getPlayer(str)
@@ -174,7 +175,6 @@ main.BorderSizePixel = 0
 
 floatBtn.MouseButton1Click:Connect(function() 
     main.Visible = not main.Visible
-    -- OTOMATIS: Optimize saat menu dibuka, Max Quality saat menu ditutup (untuk foto)
     setOptimization(main.Visible)
 end)
 
@@ -204,7 +204,6 @@ box.FocusLost:Connect(function(enter)
     end
 end)
 
--- BUTTONS
 local function createBtn(txt, pos, sizeX)
     local b = Instance.new("TextButton", content)
     b.Size = UDim2.new(sizeX, -5, 0, 28)
@@ -225,8 +224,6 @@ local listFrame = Instance.new("ScrollingFrame", content)
 listFrame.Size = UDim2.new(1,-10,0,100)
 listFrame.Position = UDim2.new(0,5,0,104)
 listFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
-listFrame.BorderSizePixel = 0
-listFrame.ScrollBarThickness = 2
 listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 local layout = Instance.new("UIListLayout", listFrame)
 layout.Padding = UDim.new(0,2)
@@ -259,8 +256,6 @@ headsit.MouseButton1Click:Connect(function()
         end
     end
 end)
-
-UIS.JumpRequest:Connect(function() if weld then weld:Destroy() weld = nil end end)
 
 -- LIST MANAGER
 function refresh()
@@ -317,7 +312,6 @@ saveBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ANTI-LAG: Turunkan render saat game idle
 LP.Idled:Connect(function()
     setOptimization(true)
     VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -326,4 +320,3 @@ LP.Idled:Connect(function()
 end)
 
 refresh()
-
